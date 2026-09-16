@@ -239,6 +239,7 @@ body.locked #toast{bottom:calc(86px + env(safe-area-inset-bottom))}
 </style>
 </head>
 <body>
+  
 <h1 class="sr-only">Macro log</h1>
 <main id="app"></main>
 <div id="sheet" hidden></div>
@@ -787,16 +788,72 @@ const Local = {
 
 const Cloud = {
   db: null,
-  set(path, data) { return Cloud.db.doc(path).set(data); },
-  async get(path) { const s = await Cloud.db.doc(path).get(); return s.exists ? s.data() : null; },
-  watch(path, next, error) { return Cloud.db.doc(path).onSnapshot(s => next(s.exists ? s.data() : null), error); },
+
+  async set(path, data) {
+    const { doc, setDoc } = window.firebaseMacroDB;
+    return setDoc(doc(Cloud.db, path), data);
+  },
+
+  async get(path) {
+    const { doc, getDoc } = window.firebaseMacroDB;
+
+    const snapshot = await getDoc(
+      doc(Cloud.db, path)
+    );
+
+    return snapshot.exists()
+      ? snapshot.data()
+      : null;
+  },
+
+  watch(path, next, error) {
+    const { doc, onSnapshot } = window.firebaseMacroDB;
+
+    return onSnapshot(
+      doc(Cloud.db, path),
+      snapshot => {
+        next(
+          snapshot.exists()
+            ? snapshot.data()
+            : null
+        );
+      },
+      error
+    );
+  },
+
   async listDays() {
-    const q = await Cloud.db.collection('days').orderBy('date', 'desc').limit(1000).get();
-    return q.docs.map(d => d.data());
+    const {
+      collection,
+      query,
+      orderBy,
+      limit,
+      getDocs
+    } = window.firebaseMacroDB;
+
+    const daysQuery = query(
+      collection(Cloud.db, 'days'),
+      orderBy('date', 'desc'),
+      limit(1000)
+    );
+
+    const snapshot = await getDocs(daysQuery);
+
+    return snapshot.docs.map(docSnapshot => docSnapshot.data());
   }
 };
-let backend = Local;
 
+let backend = Local;
+async function waitForFirebase() {
+  while (!window.firebaseMacroDB) {
+    await new Promise(resolve => setTimeout(resolve, 50));
+  }
+
+  Cloud.db = window.firebaseMacroDB.db;
+  backend = Cloud;
+
+  console.log('Using Firebase Cloud backend');
+}
 const writers = {};
 const isDirty = path => { const w = writers[path]; return !!(w && (w.busy || w.pending)); };
 function queueWrite(path, data) {
@@ -2121,10 +2178,69 @@ async function init() {
   watchDay(S.date);
 }
 
-window.__macroTracker = { S, getFood, allFoods, menuFor, searchFoods, dayTotals };
-init();
+async function startApp() {
+  await waitForFirebase();
+  init();
+}
+
+window.__macroTracker = {
+  S,
+  getFood,
+  allFoods,
+  menuFor,
+  searchFoods,
+  dayTotals
+};
+
+startApp();
 })();
 
+</script>
+<script type="module">
+  import { initializeApp } from
+    "https://www.gstatic.com/firebasejs/12.19.0/firebase-app.js";
+
+  import {
+    getFirestore,
+    doc,
+    setDoc,
+    getDoc,
+    onSnapshot,
+    collection,
+    query,
+    orderBy,
+    limit,
+    getDocs
+  } from
+    "https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore.js";
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyDLkQx2Ym2AO5jGHyf2xmFSslEb-sD-MYo",
+    authDomain: "meal-tracker-216ca.firebaseapp.com",
+    projectId: "meal-tracker-216ca",
+    storageBucket: "meal-tracker-216ca.firebasestorage.app",
+    messagingSenderId: "156003621633",
+    appId: "1:156003621633:web:748791c98b67f530749900",
+    measurementId: "G-HBF1BBVGLM"
+  };
+
+  const app = initializeApp(firebaseConfig);
+  const db = getFirestore(app);
+
+  window.firebaseMacroDB = {
+    db,
+    doc,
+    setDoc,
+    getDoc,
+    onSnapshot,
+    collection,
+    query,
+    orderBy,
+    limit,
+    getDocs
+  };
+
+  console.log("Firebase Firestore connected!");
 </script>
 </body>
 </html>
